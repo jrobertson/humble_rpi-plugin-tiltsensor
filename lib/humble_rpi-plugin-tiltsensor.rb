@@ -50,8 +50,9 @@ class HumbleRPiPluginTiltSensor
 
             # identify if the movement is consecutive
             msg = if elapsed < duration then              
+              s = ChronicDuration.output(duration, :format => :long)
               "%s/tilt/%s: detected %s times within the past %s" \
-                                              % [device_id, i, count, duration]
+                                                    % [device_id, i, count, s ]
             else              
               "%s/tilt/%s: detected" % [device_id, i]
             end
