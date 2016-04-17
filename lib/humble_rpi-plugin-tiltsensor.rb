@@ -3,20 +3,27 @@
 # file: humble_rpi-plugin-tiltsensor.rb
 
 require 'chronic_duration'
-require 'pi_piper'
+require 'rpi_pinin'
 
+
+# Hardware test setup:
+# 
+# * tilt sensor only connected between a GPIO pin and ground
+#
+# Trigger an event
+#
+# * To trigger a tilt action either tap the sensor when it is vertical or 
+#   tilted at an angle of 45 degrees or more
 
 class HumbleRPiPluginTiltSensor
-  include PiPiper
+
 
   def initialize(settings: {}, variables: {})
 
-    @pins = settings[:pins]
+    @pins = settings[:pins].map {|x| RPiPinIn.new x}
     @duration = settings[:duration] || '1 minute'
     @notifier = variables[:notifier]
     @device_id = variables[:device_id] || 'pi'
-      
-    at_exit { @pins.each {|pin| File.write '/sys/class/gpio/unexport', pin } }
     
   end
 
@@ -34,43 +41,45 @@ class HumbleRPiPluginTiltSensor
     puts 'ready to detect tilting'
     
     @pins.each.with_index do |pin, i|
-
-      PiPiper.watch :pin => pin.to_i, :invert => true do |pin|        
-
-        # ignore any movements that happened 250 
-        #               milliseconds ago since the last movement
-        if t0 + 0.25 < Time.now then          
+      
+      Thread.new do      
+        
+        pin.watch_high do
           
-          count += 1
-          
-          elapsed = Time.now - (t1  + duration)
-          #puts 'elapsed : ' + elapsed.inspect
+          # ignore any movements that happened 250 
+          #               milliseconds ago since the last movement
+          if t0 + 0.25 < Time.now then          
+            
+            count += 1
+            
+            elapsed = Time.now - (t1  + duration)
+            #puts 'elapsed : ' + elapsed.inspect
 
-          if elapsed > 0 then
+            if elapsed > 0 then
 
-            # identify if the movement is consecutive
-            msg = if elapsed < duration then              
-              s = ChronicDuration.output(duration, :format => :long)
-              "%s/tilt/%s: detected %s times within the past %s" \
-                                                    % [device_id, i, count, s ]
-            else              
-              "%s/tilt/%s: detected" % [device_id, i]
+              # identify if the movement is consecutive
+              msg = if elapsed < duration then              
+                s = ChronicDuration.output(duration, :format => :long)
+                "%s/tilt/%s: detected %s times within the past %s" \
+                                                      % [device_id, i, count, s ]
+              else              
+                "%s/tilt/%s: detected" % [device_id, i]
+              end
+              
+              notifier.notice msg
+              t1 = Time.now
+              count = 0
             end
             
-            notifier.notice msg
-            t1 = Time.now
-            count = 0
-          end
+            t0 = Time.now
+          else
+            #puts 'ignoring ...'
+          end          
           
-          t0 = Time.now
-        else
-          #puts 'ignoring ...'
-        end
-      end
-            
+        end #/ watch_high        
+      end #/ thread             
     end
-    
-    PiPiper.wait
+
     
   end
   
